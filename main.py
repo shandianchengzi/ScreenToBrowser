@@ -461,10 +461,6 @@ class StatusWindow:
         self._update_display()
         self.root.deiconify()
 
-        # 自动打开浏览器
-        lan_ip = get_local_ip()
-        webbrowser.open(f"http://{lan_ip}:{self._port}")
-
     def _on_port_change(self) -> None:
         """修改服务端口并重启。"""
         raw = self._port_var.get().strip()
@@ -490,10 +486,6 @@ class StatusWindow:
         loop, _ = start_server_thread(self._cfg)
         self.set_loop(loop)
         self._update_display()
-
-        # 自动打开浏览器
-        lan_ip = get_local_ip()
-        webbrowser.open(f"http://{lan_ip}:{new_port}")
 
     def _update_display(self) -> None:
         """刷新地址和区域标签。"""
@@ -549,12 +541,7 @@ def main() -> None:
     log.info("启动 HTTP 服务...")
     loop, _ = start_server_thread(cfg)
 
-    # 4. 自动打开浏览器
-    url = f"http://127.0.0.1:{port}"
-    log.info("打开浏览器: %s", url)
-    webbrowser.open(url)
-
-    # 5. 显示状态窗口（主线程 Tk 主循环）
+    # 4. 显示状态窗口（主线程 Tk 主循环）
     status_win = StatusWindow("0.0.0.0", port, cfg)
     status_win.set_loop(loop)
     status_win.run()
