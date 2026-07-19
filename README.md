@@ -7,8 +7,11 @@
 - 🖱️ **可视化框选** — 全屏透明覆盖层，鼠标拖拽选择共享区域，实时显示选区尺寸
 - 🖱️ **鼠标光标捕获** — 共享画面中自动显示鼠标光标，支持所有光标类型
 - 📡 **MJPEG 流推送** — 基于 `aiohttp` + `mss` 高速截屏，浏览器无需插件即可观看
+- 🎮 **远程输入** — 右侧面板支持触摸板（鼠标控制）、虚拟键盘、文本输入、快捷按钮
+- ⌨️ **键盘模式** — 切换后显示完整虚拟键盘 + 数字键盘，适合纯键盘操作场景
+- 🔒 **密码认证** — 可选的访问密码，保护共享画面不被未授权访问
 - 🌐 **局域网访问** — 自动获取本机局域网 IP，同一网络下任意设备均可查看
-- ⚙️ **可配置** — `config.json` 记录捕获区域坐标、端口、帧率等参数
+- ⚙️ **可配置** — `config.json` 记录捕获区域坐标、端口、帧率、密码等参数
 - 📦 **单文件 exe** — PyInstaller 打包，双击即用，无需 Python 环境
 
 ## 快速开始
@@ -37,17 +40,27 @@ python main.py
 2. **拖拽鼠标**框选要共享的屏幕区域，松开鼠标确认
 3. 程序自动写入配置并启动 HTTP 服务
 4. 弹出的 **状态窗口**中可查看局域网地址、复制链接、调整帧率、或停止共享
-5. 同一局域网下的其他设备打开该地址即可查看
+5. 同一局域网下的其他设备打开该地址即可查看和控制
 
 > 按 `ESC` 可随时取消选择。
+
+## 远程输入
+
+浏览器页面右侧为远程输入面板（可折叠隐藏），包含：
+
+- **文本输入** — 输入文字后点击"发送到电脑"，自动粘贴到当前光标位置
+- **快捷按钮** — Esc、Tab、退格、方向键、撤销/全选/复制/粘贴
+- **触摸板** — 滑动移动鼠标，轻触=左键，双击=拖拽模式
+- **灵敏度调节** — 滑块调整鼠标移动灵敏度（自动保存）
+- **键盘模式** — 切换后显示完整虚拟键盘，支持 Shift/Ctrl/CapsLock 组合键
 
 ## 项目结构
 
 ```
 ScreenToBrowser/
 ├── main.py            # GUI 入口（Tkinter 全屏覆盖层 + 服务启动）
-├── server.py          # HTTP 服务端（MJPEG 流 + Web 查看页面 + REST API）
-├── config.json        # 运行时配置（捕获区域、端口、帧率）
+├── server.py          # HTTP 服务端（MJPEG 流 + 远程输入 + Web 页面 + REST API）
+├── config.json        # 运行时配置（捕获区域、端口、帧率、密码）
 ├── build.py           # PyInstaller 打包脚本
 ├── requirements.txt   # Python 依赖
 └── dist/
@@ -70,7 +83,8 @@ ScreenToBrowser/
   "server": {
     "host": "0.0.0.0",
     "port": 8080,
-    "fps": 30
+    "fps": 30,
+    "password": ""
   }
 }
 ```
@@ -85,13 +99,16 @@ ScreenToBrowser/
 | `server.host` | 监听地址，`0.0.0.0` 表示所有网卡 |
 | `server.port` | 监听端口，被占用时自动递增 |
 | `server.fps` | 帧率，越高画面越流畅，CPU 占用也越高，默认 `30` |
+| `server.password` | 访问密码，为空则不启用认证 |
 
 ## API 端点
 
 | 路径 | 方法 | 说明 |
 |------|------|------|
-| `/` | GET | Web 查看页面 |
+| `/` | GET | Web 查看页面（需认证时显示登录页） |
 | `/stream` | GET | MJPEG 实时流（`<img src="/stream">`） |
+| `/login` | POST | 密码登录（JSON body: `{"password": "xxx"}`） |
+| `/api/input` | POST | 远程输入（鼠标/键盘/文本） |
 | `/api/config` | GET | 获取当前配置 |
 | `/api/config` | POST | 更新配置（JSON body） |
 | `/api/stop` | POST | 停止服务 |
@@ -110,6 +127,8 @@ python build.py
 | [aiohttp](https://docs.aiohttp.org/) | 异步 HTTP 服务器 |
 | [mss](https://python-mss.readthedocs.io/) | 高速屏幕截图 |
 | [Pillow](https://pillow.readthedocs.io/) | 图像编码（JPEG） |
+| [pyautogui](https://pyautogui.readthedocs.io/) | 鼠标键盘模拟（远程输入） |
+| [pyperclip](https://github.com/asweigart/pyperclip) | 剪贴板操作 |
 | [PyInstaller](https://pyinstaller.org/) | 打包为 exe |
 
 ## 许可证
