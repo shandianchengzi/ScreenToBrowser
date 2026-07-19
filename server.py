@@ -439,6 +439,21 @@ LOGIN_HTML = """<!DOCTYPE html>
     <div id="msg"></div>
   </div>
 <script>
+// 自动用缓存的密码登录
+(async function() {
+  const cached = localStorage.getItem('stb_password');
+  if (cached) {
+    const r = await fetch('/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: cached})
+    });
+    if (r.ok) { window.location.reload(); return; }
+    else { localStorage.removeItem('stb_password'); }
+  }
+  document.getElementById('pw').focus();
+})();
+
 async function login() {
   const pw = document.getElementById('pw').value.trim();
   if (!pw) { document.getElementById('msg').textContent = '请输入密码'; return; }
@@ -447,8 +462,13 @@ async function login() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({password: pw})
   });
-  if (r.ok) { window.location.reload(); }
-  else { document.getElementById('msg').textContent = '密码错误'; document.getElementById('pw').value = ''; }
+  if (r.ok) {
+    localStorage.setItem('stb_password', pw);
+    window.location.reload();
+  } else {
+    document.getElementById('msg').textContent = '密码错误';
+    document.getElementById('pw').value = '';
+  }
 }
 </script>
 </body>
@@ -471,7 +491,7 @@ body { background: #121212; color: #eee; font-family: -apple-system, sans-serif;
        display: flex; height: 100vh; overflow: hidden; }
 
 /* 左侧：屏幕共享 */
-.main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.main-area { flex: 1; display: flex; flex-direction: column; min-width: 0; margin-right: 40%; }
 .header { padding: 8px 16px; background: #1a1a2e; font-size: 16px; font-weight: 600;
           border-bottom: 1px solid #0f3460; display: flex; align-items: center; justify-content: space-between; }
 .header-left { display: flex; align-items: center; gap: 12px; }
@@ -480,15 +500,18 @@ body { background: #121212; color: #eee; font-family: -apple-system, sans-serif;
                padding: 8px; overflow: hidden; background: #000; }
 img#stream { max-width: 100%; max-height: 100%; object-fit: contain; }
 
-/* 右侧面板 */
-.panel { width: 320px; background: #1a1a2e;
-         display: flex; flex-direction: column; transition: width 0.2s; }
-.panel.collapsed { width: 0; overflow: hidden; }
+/* 右侧面板 - fixed 定位 */
+.panel { position: fixed; top: 0; right: 0; width: 40%; height: 100vh;
+         background: #1a1a2e; display: flex; flex-direction: column;
+         transition: transform 0.2s; z-index: 100; }
+.panel.collapsed { transform: translateX(100%); }
 .panel-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-.panel-toggle { width: 100%; height: 40px; background: #222; border: none; color: #aaa;
-                cursor: pointer; font-size: 14px; display: flex; align-items: center;
-                justify-content: center; flex-shrink: 0; }
-.panel-toggle:hover { background: #333; color: #fff; }
+.panel-toggle { position: fixed; top: 50%; right: 40%; transform: translate(50%, -50%);
+                width: 28px; height: 80px; background: #333; border: none; color: #aaa;
+                cursor: pointer; border-radius: 6px 0 0 6px; font-size: 14px; z-index: 101;
+                display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; }
+.panel.collapsed ~ .panel-toggle { right: 0; transform: translate(0, -50%); border-radius: 6px 0 0 6px; }
+.panel-toggle:hover { background: #444; color: #fff; }
 
 /* 面板内部 */
 .panel-section { padding: 12px; border-bottom: 1px solid #222; }
@@ -727,10 +750,10 @@ textarea { width: 100%; height: 80px; font-size: 14px; padding: 8px; background:
     </div>
   </div>
   </div><!-- /panel-content -->
-
-  <!-- 面板折叠按钮（底部） -->
-  <button class="panel-toggle" id="panelToggle" onclick="togglePanel()">◀ 收起面板</button>
 </div><!-- /panel -->
+
+<!-- 面板折叠按钮（侧面） -->
+<button class="panel-toggle" id="panelToggle" onclick="togglePanel()">收起</button>
 
 <script>
 // === 面板折叠 ===
@@ -738,12 +761,12 @@ const panel = document.getElementById('panel');
 const toggle = document.getElementById('panelToggle');
 function togglePanel() {
   const collapsed = panel.classList.toggle('collapsed');
-  toggle.textContent = collapsed ? '▶ 展开面板' : '◀ 收起面板';
+  toggle.textContent = collapsed ? '展开' : '收起';
   localStorage.setItem('panel_collapsed', collapsed ? '1' : '');
 }
 if (localStorage.getItem('panel_collapsed') === '1') {
   panel.classList.add('collapsed');
-  toggle.textContent = '▶ 展开面板';
+  toggle.textContent = '展开';
 }
 
 // === FPS 计数 ===
