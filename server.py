@@ -122,6 +122,36 @@ CURSOR_SHOWING = 0x00000001
 DIB_RGB_COLORS = 0
 DI_NORMAL = 0x0003
 
+# 定义函数参数类型，确保 64 位句柄不会溢出
+user32.GetCursorInfo.argtypes = [ctypes.POINTER(CURSORINFO)]
+user32.GetCursorInfo.restype = wintypes.BOOL
+user32.GetIconInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(ICONINFO)]
+user32.GetIconInfo.restype = wintypes.BOOL
+user32.GetDC.argtypes = [wintypes.HWND]
+user32.GetDC.restype = wintypes.HDC
+user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+user32.ReleaseDC.restype = ctypes.c_int
+user32.DrawIconEx.argtypes = [
+    wintypes.HDC, ctypes.c_int, ctypes.c_int, wintypes.HANDLE,
+    ctypes.c_int, ctypes.c_int, ctypes.c_uint, wintypes.HANDLE, wintypes.UINT,
+]
+user32.DrawIconEx.restype = wintypes.BOOL
+gdi32.GetObjectW.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID]
+gdi32.GetObjectW.restype = ctypes.c_int
+gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
+gdi32.CreateCompatibleDC.restype = wintypes.HDC
+gdi32.CreateDIBSection.argtypes = [
+    wintypes.HDC, ctypes.c_void_p, ctypes.c_uint,
+    ctypes.POINTER(ctypes.c_void_p), wintypes.HANDLE, wintypes.DWORD,
+]
+gdi32.CreateDIBSection.restype = wintypes.HBITMAP
+gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HGDIOBJ]
+gdi32.SelectObject.restype = wintypes.HGDIOBJ
+gdi32.DeleteObject.argtypes = [wintypes.HGDIOBJ]
+gdi32.DeleteObject.restype = wintypes.BOOL
+gdi32.DeleteDC.argtypes = [wintypes.HDC]
+gdi32.DeleteDC.restype = wintypes.BOOL
+
 
 def _draw_cursor_on_image(img: Image.Image, region: dict) -> Image.Image:
     """Windows: 在 PIL Image 上绘制当前鼠标光标。
