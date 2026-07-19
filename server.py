@@ -481,15 +481,14 @@ body { background: #121212; color: #eee; font-family: -apple-system, sans-serif;
 img#stream { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 /* 右侧面板 */
-.panel { width: 320px; background: #1a1a2e; border-left: 1px solid #333;
-         display: flex; flex-direction: column; overflow-y: auto; transition: width 0.2s; }
-.panel.collapsed { width: 0; overflow: hidden; border-left: none; }
-.panel-toggle { position: absolute; right: 320px; top: 50%; transform: translateY(-50%);
-                width: 24px; height: 60px; background: #333; border: none; color: #aaa;
-                cursor: pointer; border-radius: 6px 0 0 6px; font-size: 16px; z-index: 10;
-                transition: right 0.2s; display: flex; align-items: center; justify-content: center; }
-.panel.collapsed + .panel-toggle, .panel-toggle.collapsed { right: 0; }
-.panel-toggle:hover { background: #444; color: #fff; }
+.panel { width: 320px; background: #1a1a2e;
+         display: flex; flex-direction: column; transition: width 0.2s; }
+.panel.collapsed { width: 0; overflow: hidden; }
+.panel-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.panel-toggle { width: 100%; height: 40px; background: #222; border: none; color: #aaa;
+                cursor: pointer; font-size: 14px; display: flex; align-items: center;
+                justify-content: center; flex-shrink: 0; }
+.panel-toggle:hover { background: #333; color: #fff; }
 
 /* 面板内部 */
 .panel-section { padding: 12px; border-bottom: 1px solid #222; }
@@ -575,6 +574,7 @@ textarea { width: 100%; height: 80px; font-size: 14px; padding: 8px; background:
 
 <!-- 右侧面板 -->
 <div class="panel" id="panel">
+  <div class="panel-content">
   <!-- 文本输入 -->
   <div class="panel-section">
     <div class="panel-title">
@@ -726,10 +726,11 @@ textarea { width: 100%; height: 80px; font-size: 14px; padding: 8px; background:
       <span id="panelFps"></span>
     </div>
   </div>
-</div>
+  </div><!-- /panel-content -->
 
-<!-- 面板折叠按钮 -->
-<button class="panel-toggle" id="panelToggle" onclick="togglePanel()">◀</button>
+  <!-- 面板折叠按钮（底部） -->
+  <button class="panel-toggle" id="panelToggle" onclick="togglePanel()">◀ 收起面板</button>
+</div><!-- /panel -->
 
 <script>
 // === 面板折叠 ===
@@ -737,14 +738,12 @@ const panel = document.getElementById('panel');
 const toggle = document.getElementById('panelToggle');
 function togglePanel() {
   const collapsed = panel.classList.toggle('collapsed');
-  toggle.textContent = collapsed ? '▶' : '◀';
-  toggle.classList.toggle('collapsed', collapsed);
+  toggle.textContent = collapsed ? '▶ 展开面板' : '◀ 收起面板';
   localStorage.setItem('panel_collapsed', collapsed ? '1' : '');
 }
 if (localStorage.getItem('panel_collapsed') === '1') {
   panel.classList.add('collapsed');
-  toggle.textContent = '▶';
-  toggle.classList.toggle('collapsed', true);
+  toggle.textContent = '▶ 展开面板';
 }
 
 // === FPS 计数 ===
