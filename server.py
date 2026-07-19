@@ -19,7 +19,7 @@ from aiohttp import web
 from PIL import Image
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 log = logging.getLogger("screen2browser")
@@ -159,70 +159,84 @@ def _draw_cursor_on_image(img: Image.Image, region: dict) -> Image.Image:
     使用 GetCursorInfo + DrawIconEx 渲染光标，支持所有光标类型
     （标准箭头、文字 I 形、手型、彩色、单色、动画光标等）。
     """
-    ci = CURSORINFO()
-    ci.cbSize = ctypes.sizeof(CURSORINFO)
-    if not user32.GetCursorInfo(ctypes.byref(ci)):
+    try:
+        ci = CURSORINFO()
+        ci.cbSize = ctypes.sizeof(CURSORINFO)
+        if not user32.GetCursorInfo(ctypes.byref(ci)):
+            log.debug("GetCursorInfo 失败")
+            return img
+        if not (ci.flags & CURSOR_SHOWING):
+            log.debug("光标不可见 (flags=0x%x)", ci.flags)
+            return img
+
+        log.debug("光标位置: (%d, %d), hCursor=%s", ci.ptScreenPos.x, ci.ptScreenPos.y, ci.hCursor)
+
+        ii = ICONINFO()
+        if not user32.GetIconInfo(ci.hCursor, ctypes.byref(ii)):
+            log.debug("GetIconInfo 失败")
+            return img
+
+        # 获取光标位图尺寸
+        bm = BITMAP()
+        hbm = ii.hbmColor if ii.hbmColor else ii.hbmMask
+        ret = gdi32.GetObjectW(hbm, ctypes.sizeof(bm), ctypes.byref(bm))
+        cw = bm.bmWidth
+        ch = bm.bmHeight if ii.hbmColor else bm.bmHeight // 2
+        log.debug("光标尺寸: %dx%d, hotspot=(%d,%d), GetObjectW=%d", cw, ch, ii.xHotspot, ii.yHotspot, ret)
+
+        # 计算光标在捕获区域中的位置（减去热点偏移）
+        dx = ci.ptScreenPos.x - region["left"] - ii.xHotspot
+        dy = ci.ptScreenPos.y - region["top"] - ii.yHotspot
+        log.debug("光标绘制位置: (%d, %d), 区域: %s", dx, dy, region)
+
+        # 释放 GetIconInfo 分配的位图
+        if ii.hbmMask:
+            gdi32.DeleteObject(ii.hbmMask)
+        if ii.hbmColor:
+            gdi32.DeleteObject(ii.hbmColor)
+
+        # 创建内存 DC，将帧像素拷入 DIB Section
+        w, h = img.size
+        src_dc = user32.GetDC(None)
+        mem_dc = gdi32.CreateCompatibleDC(src_dc)
+
+        bmi = BITMAPINFOHEADER()
+        bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        bmi.biWidth = w
+        bmi.biHeight = -h  # 自上而下
+        bmi.biPlanes = 1
+        bmi.biBitCount = 32
+        bmi.biCompression = 0  # BI_RGB
+
+        bits = ctypes.c_void_p()
+        hbm_out = gdi32.CreateDIBSection(
+            mem_dc, ctypes.byref(bmi), DIB_RGB_COLORS, ctypes.byref(bits), None, 0,
+        )
+        old_bmp = gdi32.SelectObject(mem_dc, hbm_out)
+
+        # 将当前帧像素复制到 DIB Section
+        raw = img.tobytes("raw", "BGRX")
+        ctypes.memmove(bits, raw, len(raw))
+
+        # 在帧上绘制光标（AND/XOR 掩码合成）
+        draw_ret = user32.DrawIconEx(mem_dc, dx, dy, ci.hCursor, cw, ch, 0, None, DI_NORMAL)
+        if not draw_ret:
+            log.debug("DrawIconEx 失败, GetLastError=%d", ctypes.GetLastError())
+
+        # 读回合成后的像素（从 DIB Section 指针读取原始字节）
+        pixel_data = ctypes.string_at(bits, w * h * 4)
+        result = Image.frombytes("RGB", (w, h), pixel_data, "raw", "BGRX")
+
+        # 清理 GDI 对象
+        gdi32.SelectObject(mem_dc, old_bmp)
+        gdi32.DeleteObject(hbm_out)
+        gdi32.DeleteDC(mem_dc)
+        user32.ReleaseDC(None, src_dc)
+
+        return result
+    except Exception:
+        log.exception("绘制光标时出错")
         return img
-    if not (ci.flags & CURSOR_SHOWING):
-        return img
-
-    ii = ICONINFO()
-    if not user32.GetIconInfo(ci.hCursor, ctypes.byref(ii)):
-        return img
-
-    # 获取光标位图尺寸
-    bm = BITMAP()
-    hbm = ii.hbmColor if ii.hbmColor else ii.hbmMask
-    gdi32.GetObjectW(hbm, ctypes.sizeof(bm), ctypes.byref(bm))
-    cw = bm.bmWidth
-    ch = bm.bmHeight if ii.hbmColor else bm.bmHeight // 2
-
-    # 计算光标在捕获区域中的位置（减去热点偏移）
-    dx = ci.ptScreenPos.x - region["left"] - ii.xHotspot
-    dy = ci.ptScreenPos.y - region["top"] - ii.yHotspot
-
-    # 释放 GetIconInfo 分配的位图
-    if ii.hbmMask:
-        gdi32.DeleteObject(ii.hbmMask)
-    if ii.hbmColor:
-        gdi32.DeleteObject(ii.hbmColor)
-
-    # 创建内存 DC，将帧像素拷入 DIB Section
-    w, h = img.size
-    src_dc = user32.GetDC(None)
-    mem_dc = gdi32.CreateCompatibleDC(src_dc)
-
-    bmi = BITMAPINFOHEADER()
-    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmi.biWidth = w
-    bmi.biHeight = -h  # 自上而下
-    bmi.biPlanes = 1
-    bmi.biBitCount = 32
-    bmi.biCompression = 0  # BI_RGB
-
-    bits = ctypes.c_void_p()
-    hbm_out = gdi32.CreateDIBSection(
-        mem_dc, ctypes.byref(bmi), DIB_RGB_COLORS, ctypes.byref(bits), None, 0,
-    )
-    old_bmp = gdi32.SelectObject(mem_dc, hbm_out)
-
-    # 将当前帧像素复制到 DIB Section
-    raw = img.tobytes("raw", "BGRX")
-    ctypes.memmove(bits, raw, len(raw))
-
-    # 在帧上绘制光标（AND/XOR 掩码合成）
-    user32.DrawIconEx(mem_dc, dx, dy, ci.hCursor, cw, ch, 0, None, DI_NORMAL)
-
-    # 读回合成后的像素
-    result = Image.frombytes("RGB", (w, h), bits, "raw", "BGRX")
-
-    # 清理 GDI 对象
-    gdi32.SelectObject(mem_dc, old_bmp)
-    gdi32.DeleteObject(hbm_out)
-    gdi32.DeleteDC(mem_dc)
-    user32.ReleaseDC(None, src_dc)
-
-    return result
 
 
 # ---------------------------------------------------------------------------
