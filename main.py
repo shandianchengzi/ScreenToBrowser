@@ -36,7 +36,7 @@ CONFIG_PATH = get_config_path()
 def load_config() -> dict:
     default = {
         "capture_region": {"left": 0, "top": 0, "width": 1920, "height": 1080, "include_cursor": True},
-        "server": {"host": "0.0.0.0", "port": 8080, "fps": 15},
+        "server": {"host": "0.0.0.0", "port": 8080, "fps": 30},
     }
     if CONFIG_PATH.exists():
         try:
