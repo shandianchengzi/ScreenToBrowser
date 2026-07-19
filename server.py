@@ -22,7 +22,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("screen2browser")
 
-CONFIG_PATH = Path(__file__).parent / "config.json"
+
+def get_config_path() -> Path:
+    """返回 config.json 的持久化路径（exe 所在目录或脚本所在目录）。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / "config.json"
+    return Path(__file__).parent / "config.json"
+
+
+CONFIG_PATH = get_config_path()
 
 # ---------------------------------------------------------------------------
 # Config helpers
@@ -165,8 +173,8 @@ VIEWER_HTML = """<!DOCTYPE html>
 class StreamApp:
     """管理 HTTP 服务和屏幕捕获。"""
 
-    def __init__(self):
-        self.config = load_config()
+    def __init__(self, config: dict | None = None):
+        self.config = config if config is not None else load_config()
         self.cap = ScreenCapture(
             self.config["capture_region"],
             self.config["server"]["fps"],
