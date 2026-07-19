@@ -385,6 +385,30 @@ class StatusWindow:
             relief="flat", padx=10, pady=2, cursor="hand2",
         ).pack(side=tk.LEFT, padx=4)
 
+        # --- FPS 修改行 ---
+        fps_frame = tk.Frame(self.root, bg=bg)
+        fps_frame.pack(pady=4)
+
+        tk.Label(
+            fps_frame, text="FPS:", font=("Microsoft YaHei UI", 11),
+            bg=bg, fg=fg,
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        self._fps_var = tk.StringVar(value=str(cfg["server"]["fps"]))
+        self._fps_entry = tk.Entry(
+            fps_frame, textvariable=self._fps_var, width=8,
+            font=("Consolas", 12), justify="center",
+        )
+        self._fps_entry.pack(side=tk.LEFT, padx=4)
+        self._fps_entry.bind("<Return>", lambda e: self._on_fps_change())
+
+        tk.Button(
+            fps_frame, text="应用", command=self._on_fps_change,
+            font=("Microsoft YaHei UI", 10), bg="#0f3460", fg=fg,
+            activebackground="#16213e", activeforeground=fg,
+            relief="flat", padx=10, pady=2, cursor="hand2",
+        ).pack(side=tk.LEFT, padx=4)
+
         # --- 停止按钮 ---
         tk.Button(
             self.root, text="⏹ 停止共享", command=self._stop,
@@ -482,6 +506,31 @@ class StatusWindow:
         self._cfg["server"]["port"] = new_port
         save_config(self._cfg)
         log.info("端口已更改为 %d", new_port)
+
+        loop, _ = start_server_thread(self._cfg)
+        self.set_loop(loop)
+        self._update_display()
+
+    def _on_fps_change(self) -> None:
+        """修改 FPS 并重启服务。"""
+        raw = self._fps_var.get().strip()
+        try:
+            new_fps = int(raw)
+        except ValueError:
+            tk.messagebox.showerror("FPS 错误", "请输入有效的整数。", parent=self.root)
+            return
+        if not (1 <= new_fps <= 120):
+            tk.messagebox.showerror("FPS 错误", "FPS 必须在 1 ~ 120 之间。", parent=self.root)
+            return
+
+        if new_fps == self._cfg["server"]["fps"]:
+            return
+
+        self._stop_server()
+
+        self._cfg["server"]["fps"] = new_fps
+        save_config(self._cfg)
+        log.info("FPS 已更改为 %d", new_fps)
 
         loop, _ = start_server_thread(self._cfg)
         self.set_loop(loop)
