@@ -4,6 +4,8 @@ MJPEG 流式屏幕共享，通过 aiohttp 提供 Web 页面和实时画面流。
 """
 
 import asyncio
+import ctypes
+from ctypes import wintypes
 import io
 import json
 import logging
@@ -39,7 +41,7 @@ CONFIG_PATH = get_config_path()
 def load_config() -> dict:
     """从 config.json 加载配置，缺失字段用默认值补全。"""
     default = {
-        "capture_region": {"left": 0, "top": 0, "width": 1920, "height": 1080},
+        "capture_region": {"left": 0, "top": 0, "width": 1920, "height": 1080, "include_cursor": True},
         "server": {"host": "0.0.0.0", "port": 8080, "fps": 15},
     }
     if CONFIG_PATH.exists():
@@ -63,13 +65,144 @@ def save_config(cfg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Windows cursor capture (GDI + User32)
+# ---------------------------------------------------------------------------
+
+class CURSORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("hCursor", wintypes.HANDLE),
+        ("ptScreenPos", wintypes.POINT),
+    ]
+
+
+class ICONINFO(ctypes.Structure):
+    _fields_ = [
+        ("fIcon", wintypes.BOOL),
+        ("xHotspot", wintypes.DWORD),
+        ("yHotspot", wintypes.DWORD),
+        ("hbmMask", wintypes.HANDLE),
+        ("hbmColor", wintypes.HANDLE),
+    ]
+
+
+class BITMAP(ctypes.Structure):
+    _fields_ = [
+        ("bmType", ctypes.c_long),
+        ("bmWidth", ctypes.c_long),
+        ("bmHeight", ctypes.c_long),
+        ("bmWidthBytes", ctypes.c_long),
+        ("bmPlanes", ctypes.c_short),
+        ("bmBitsPixel", ctypes.c_short),
+        ("bmBits", ctypes.c_void_p),
+    ]
+
+
+class BITMAPINFOHEADER(ctypes.Structure):
+    _fields_ = [
+        ("biSize", wintypes.DWORD),
+        ("biWidth", ctypes.c_long),
+        ("biHeight", ctypes.c_long),
+        ("biPlanes", ctypes.c_short),
+        ("biBitCount", ctypes.c_short),
+        ("biCompression", wintypes.DWORD),
+        ("biSizeImage", wintypes.DWORD),
+        ("biXPelsPerMeter", ctypes.c_long),
+        ("biYPelsPerMeter", ctypes.c_long),
+        ("biClrUsed", wintypes.DWORD),
+        ("biClrImportant", wintypes.DWORD),
+    ]
+
+
+user32 = ctypes.windll.user32
+gdi32 = ctypes.windll.gdi32
+
+CURSOR_SHOWING = 0x00000001
+DIB_RGB_COLORS = 0
+DI_NORMAL = 0x0003
+
+
+def _draw_cursor_on_image(img: Image.Image, region: dict) -> Image.Image:
+    """Windows: 在 PIL Image 上绘制当前鼠标光标。
+
+    使用 GetCursorInfo + DrawIconEx 渲染光标，支持所有光标类型
+    （标准箭头、文字 I 形、手型、彩色、单色、动画光标等）。
+    """
+    ci = CURSORINFO()
+    ci.cbSize = ctypes.sizeof(CURSORINFO)
+    if not user32.GetCursorInfo(ctypes.byref(ci)):
+        return img
+    if not (ci.flags & CURSOR_SHOWING):
+        return img
+
+    ii = ICONINFO()
+    if not user32.GetIconInfo(ci.hCursor, ctypes.byref(ii)):
+        return img
+
+    # 获取光标位图尺寸
+    bm = BITMAP()
+    hbm = ii.hbmColor if ii.hbmColor else ii.hbmMask
+    gdi32.GetObjectW(hbm, ctypes.sizeof(bm), ctypes.byref(bm))
+    cw = bm.bmWidth
+    ch = bm.bmHeight if ii.hbmColor else bm.bmHeight // 2
+
+    # 计算光标在捕获区域中的位置（减去热点偏移）
+    dx = ci.ptScreenPos.x - region["left"] - ii.xHotspot
+    dy = ci.ptScreenPos.y - region["top"] - ii.yHotspot
+
+    # 释放 GetIconInfo 分配的位图
+    if ii.hbmMask:
+        gdi32.DeleteObject(ii.hbmMask)
+    if ii.hbmColor:
+        gdi32.DeleteObject(ii.hbmColor)
+
+    # 创建内存 DC，将帧像素拷入 DIB Section
+    w, h = img.size
+    src_dc = user32.GetDC(None)
+    mem_dc = gdi32.CreateCompatibleDC(src_dc)
+
+    bmi = BITMAPINFOHEADER()
+    bmi.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+    bmi.biWidth = w
+    bmi.biHeight = -h  # 自上而下
+    bmi.biPlanes = 1
+    bmi.biBitCount = 32
+    bmi.biCompression = 0  # BI_RGB
+
+    bits = ctypes.c_void_p()
+    hbm_out = gdi32.CreateDIBSection(
+        mem_dc, ctypes.byref(bmi), DIB_RGB_COLORS, ctypes.byref(bits), None, 0,
+    )
+    old_bmp = gdi32.SelectObject(mem_dc, hbm_out)
+
+    # 将当前帧像素复制到 DIB Section
+    raw = img.tobytes("raw", "BGRX")
+    ctypes.memmove(bits, raw, len(raw))
+
+    # 在帧上绘制光标（AND/XOR 掩码合成）
+    user32.DrawIconEx(mem_dc, dx, dy, ci.hCursor, cw, ch, 0, None, DI_NORMAL)
+
+    # 读回合成后的像素
+    result = Image.frombytes("RGB", (w, h), bits, "raw", "BGRX")
+
+    # 清理 GDI 对象
+    gdi32.SelectObject(mem_dc, old_bmp)
+    gdi32.DeleteObject(hbm_out)
+    gdi32.DeleteDC(mem_dc)
+    user32.ReleaseDC(None, src_dc)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Screen capture
 # ---------------------------------------------------------------------------
 
 class ScreenCapture:
     """使用 mss 高速截屏，输出 JPEG bytes。"""
 
-    def __init__(self, region: dict, fps: int = 15):
+    def __init__(self, region: dict, fps: int = 15, include_cursor: bool = True):
         self.region = {
             "left": region["left"],
             "top": region["top"],
@@ -77,6 +210,7 @@ class ScreenCapture:
             "height": region["height"],
         }
         self.fps = fps
+        self.include_cursor = include_cursor
         self._sct = mss.mss()
         self._frame_interval = 1.0 / max(fps, 1)
 
@@ -96,6 +230,8 @@ class ScreenCapture:
         """截取一帧并编码为 JPEG bytes。"""
         sct_img = self._sct.grab(self.region)
         img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
+        if self.include_cursor:
+            img = _draw_cursor_on_image(img, self.region)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality, optimize=True)
         return buf.getvalue()
@@ -178,6 +314,7 @@ class StreamApp:
         self.cap = ScreenCapture(
             self.config["capture_region"],
             self.config["server"]["fps"],
+            include_cursor=self.config["capture_region"].get("include_cursor", True),
         )
         self._app = web.Application()
         self._setup_routes()

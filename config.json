@@ -3,7 +3,8 @@
     "left": 0,
     "top": 0,
     "width": 1920,
-    "height": 1080
+    "height": 1080,
+    "include_cursor": true
   },
   "server": {
     "host": "0.0.0.0",
